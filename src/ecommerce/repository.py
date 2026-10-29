@@ -80,9 +80,7 @@ def create_order(
             product_id = item["product_id"]
             quantity = item["quantity"]
         except (KeyError, TypeError) as error:
-            raise ValueError(
-                "Each item needs product_id and quantity."
-            ) from error
+            raise ValueError("Each item needs product_id and quantity.") from error
 
         if (
             not isinstance(product_id, int)
@@ -91,11 +89,7 @@ def create_order(
         ):
             raise ValueError("Product IDs must be positive integers.")
 
-        if (
-            not isinstance(quantity, int)
-            or isinstance(quantity, bool)
-            or quantity <= 0
-        ):
+        if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
             raise ValueError("Quantities must be positive integers.")
 
         if product_id in seen_products:
@@ -131,10 +125,7 @@ def create_order(
             """,
             (product_ids,),
         )
-        prices = {
-            row["product_id"]: row["price"]
-            for row in cursor.fetchall()
-        }
+        prices = {row["product_id"]: row["price"] for row in cursor.fetchall()}
 
         missing_ids = set(product_ids) - prices.keys()
         if missing_ids:

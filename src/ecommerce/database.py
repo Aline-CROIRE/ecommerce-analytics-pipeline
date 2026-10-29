@@ -1,4 +1,3 @@
-
 """PostgreSQL connection pooling and configuration."""
 
 import os
@@ -13,7 +12,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
-
 def create_pool(
     min_connections: int = 1,
     max_connections: int = 5,
@@ -25,9 +23,7 @@ def create_pool(
     required = ("POSTGRES_DB", "POSTGRES_USER", "POSTGRES_PASSWORD")
     missing = [key for key in required if not os.getenv(key)]
     if missing:
-        raise RuntimeError(
-            f"Missing environment variables: {', '.join(missing)}"
-        )
+        raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
 
     return ThreadedConnectionPool(
         minconn=min_connections,
