@@ -1,0 +1,9 @@
+
+psycopg2-binary
+redis
+pymongo
+python-dotenv
+pytest
+pytest-cov
+ruff
+black
