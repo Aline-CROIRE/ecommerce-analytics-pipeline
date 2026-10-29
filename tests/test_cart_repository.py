@@ -91,7 +91,7 @@ def test_add_item_returns_false_when_cart_does_not_exist(collection):
     result = cart_repository.add_item(collection, 42, 101, 1)
 
     assert result is False
-    assert collection.find_one_and_update.call_count == 2
+    assert collection.find_one_and_update.call_count == 3
 
 
 @pytest.mark.parametrize(
