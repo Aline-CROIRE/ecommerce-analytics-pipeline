@@ -60,7 +60,7 @@ def add_item(
 
     now = _utc_now()
 
-    # First try to increment an existing item atomically.
+    # First, increment the product if it already exists.
     updated_cart = collection.find_one_and_update(
         {
             "customer_id": customer_id,
@@ -76,7 +76,7 @@ def add_item(
     if updated_cart is not None:
         return True
 
-    # If the item does not exist, append it only if it is still absent.
+    # Otherwise, append it only if it is still absent.
     updated_cart = collection.find_one_and_update(
         {
             "customer_id": customer_id,
@@ -86,6 +86,23 @@ def add_item(
         {
             "$push": {"items": {"product_id": product_id, "quantity": quantity}},
             "$set": {"updated_at": now},
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated_cart is not None:
+        return True
+
+    # Another request may have inserted the item between our two operations.
+    # Retry the increment once to handle that race.
+    updated_cart = collection.find_one_and_update(
+        {
+            "customer_id": customer_id,
+            "status": "active",
+            "items.product_id": product_id,
+        },
+        {
+            "$inc": {"items.$.quantity": quantity},
+            "$set": {"updated_at": _utc_now()},
         },
         return_document=ReturnDocument.AFTER,
     )

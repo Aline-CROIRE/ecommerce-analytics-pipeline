@@ -3,6 +3,9 @@
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-ra"
+markers = [
+    "mongodb: integration tests requiring a running MongoDB instance",
+]
 
 [tool.ruff]
 line-length = 88
