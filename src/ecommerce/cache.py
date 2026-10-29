@@ -19,11 +19,18 @@ CACHE_KEY_PREFIX = "ecommerce:products:top-selling"
 
 
 def create_redis_client() -> redis.Redis:
-    """Create a Redis client using the configured connection URL."""
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    """Create a Redis client using the configured connection settings."""
+    redis_url = os.getenv("REDIS_URL")
+
+    if redis_url:
+        return redis.Redis.from_url(
+            redis_url,
+            decode_responses=True,
+        )
 
     return redis.Redis.from_url(
-        redis_url,
+        "redis://localhost:6379/0",
+        password=os.getenv("REDIS_PASSWORD") or None,
         decode_responses=True,
     )
 
