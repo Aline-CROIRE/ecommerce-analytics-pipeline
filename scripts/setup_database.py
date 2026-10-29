@@ -1,4 +1,3 @@
-
 """Apply the PostgreSQL schema and verify the database tables."""
 
 import os
@@ -21,14 +20,10 @@ def setup_database() -> None:
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
     )
-    missing = [
-        name for name in required_variables if not os.getenv(name)
-    ]
+    missing = [name for name in required_variables if not os.getenv(name)]
 
     if missing:
-        raise RuntimeError(
-            f"Missing environment variables: {', '.join(missing)}"
-        )
+        raise RuntimeError(f"Missing environment variables: {', '.join(missing)}")
 
     if not SCHEMA_FILE.is_file():
         raise FileNotFoundError(f"Schema file not found: {SCHEMA_FILE}")
@@ -43,22 +38,17 @@ def setup_database() -> None:
     )
 
     try:
-        with connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    SCHEMA_FILE.read_text(encoding="utf-8")
-                )
+        with connection, connection.cursor() as cursor:
+            cursor.execute(SCHEMA_FILE.read_text(encoding="utf-8"))
 
-                cursor.execute(
-                    """
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                      AND table_type = 'BASE TABLE'
-                    ORDER BY table_name;
-                    """
-                )
-                tables = cursor.fetchall()
+            cursor.execute("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                  AND table_type = 'BASE TABLE'
+                ORDER BY table_name;
+                """)
+            tables = cursor.fetchall()
 
         print("Database schema applied successfully.")
         print("Tables found:")
