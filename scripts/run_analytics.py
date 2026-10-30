@@ -12,6 +12,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from ecommerce.analytics import compare_index_plans, run_analytics  # noqa: E402
 from ecommerce.database import create_pool  # noqa: E402
 
+PREVIEW_ROWS = 10
+
 
 def main() -> None:
     """Run analytics reports and compare query execution plans."""
@@ -23,7 +25,8 @@ def main() -> None:
 
         for filename, rows in reports.items():
             print(f"\n--- {filename} ---")
-            pprint(rows, sort_dicts=False)
+            print(f"Showing {min(len(rows), PREVIEW_ROWS)} of {len(rows)} rows")
+            pprint(rows[:PREVIEW_ROWS], sort_dicts=False)
 
         print("\n=== QUERY PLAN COMPARISON ===")
         compare_index_plans(pool)

@@ -5,11 +5,15 @@ from decimal import Decimal
 import pytest
 
 from ecommerce.analytics import (
+    INDEXED_QUERIES,
     REPORT_FILES,
+    benchmark_index_plans,
     compare_index_plans,
     load_sql,
     run_analytics,
+    summarize_plan,
 )
+from ecommerce.database import pooled_connection
 from ecommerce.repository import create_order, update_order_status
 
 
@@ -139,3 +143,79 @@ def test_compare_index_plans_returns_before_and_after_results(db_context):
 
         for query_plan in plans[stage].values():
             assert "Execution Time" in query_plan
+
+
+def _plan(execution_ms, node):
+    return {"Plan": node, "Execution Time": execution_ms, "Planning Time": 0.1}
+
+
+def test_summarize_plan_reports_median_scans_and_indexes():
+    """Summaries use the median time and list nested scans and index names."""
+    index_plan = {
+        "Node Type": "Bitmap Heap Scan",
+        "Actual Rows": 10,
+        "Plans": [
+            {
+                "Node Type": "Bitmap Index Scan",
+                "Index Name": "idx_orders_customer_id",
+                "Actual Rows": 10,
+            }
+        ],
+    }
+    plans = [_plan(ms, index_plan) for ms in (0.5, 0.1, 9.0)]
+
+    summary = summarize_plan(plans)
+
+    assert summary["median_execution_ms"] == 0.5
+    assert summary["scan_types"] == ["Bitmap Heap Scan", "Bitmap Index Scan"]
+    assert summary["indexes_used"] == ["idx_orders_customer_id"]
+    assert summary["rows"] == 10
+    assert summary["runs"] == 3
+
+
+@pytest.mark.parametrize("runs", [0, -1, True, 1.5])
+def test_benchmark_rejects_invalid_runs(runs):
+    with pytest.raises(ValueError, match="runs must be a positive integer"):
+        benchmark_index_plans(None, runs=runs)
+
+
+def test_benchmark_index_plans_measures_both_stages(db_context):
+    results = benchmark_index_plans(db_context["pool"], runs=1)
+
+    for stage in ("before_indexes", "after_indexes"):
+        assert set(results[stage]) == set(INDEXED_QUERIES)
+        for summary in results[stage].values():
+            assert summary["median_execution_ms"] >= 0
+            assert summary["scan_types"]
+
+    # Without the indexes, PostgreSQL has no index to use.
+    for summary in results["before_indexes"].values():
+        assert summary["indexes_used"] == []
+
+
+@pytest.mark.parametrize(
+    ("query_name", "parameter", "index_name"),
+    [
+        ("customer_orders", 1, "idx_orders_customer_id"),
+        ("product_metadata", '{"brand": "brand_1"}', "idx_products_metadata_gin"),
+    ],
+)
+def test_indexed_queries_can_use_project_indexes(
+    db_context, query_name, parameter, index_name
+):
+    """
+    Each measured query pattern is supported by its index.
+
+    Sequential scans are disabled for this transaction only, so the check also
+    holds on the small sample dataset where a sequential scan is cheaper.
+    """
+    with (
+        pooled_connection(db_context["pool"]) as connection,
+        connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute("SET LOCAL enable_seqscan = off;")
+        cursor.execute(f"EXPLAIN {INDEXED_QUERIES[query_name]}", (parameter,))
+        plan = "\n".join(row[0] for row in cursor.fetchall())
+
+    assert index_name in plan
