@@ -1,6 +1,7 @@
 
 -- Return the top-selling products based on units sold.
--- Exclude items from cancelled orders and retain products with no sales.
+-- Count only paid, shipped, and delivered orders; pending and cancelled
+-- orders are not revenue. Products with no sales are retained.
 
 WITH valid_sales AS (
     SELECT
@@ -10,7 +11,7 @@ WITH valid_sales AS (
     FROM order_items AS oi
     INNER JOIN orders AS o
         ON o.order_id = oi.order_id
-    WHERE o.status <> 'cancelled'
+    WHERE o.status IN ('paid', 'shipped', 'delivered')
 ),
 product_sales AS (
     SELECT

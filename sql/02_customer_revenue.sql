@@ -1,4 +1,5 @@
 -- Calculate order totals, aggregate revenue by customer, and rank customers.
+-- Revenue counts only paid, shipped, and delivered orders.
 
 WITH order_totals AS (
     SELECT
@@ -8,7 +9,7 @@ WITH order_totals AS (
     FROM orders AS o
     INNER JOIN order_items AS oi
         ON oi.order_id = o.order_id
-    WHERE o.status <> 'cancelled'
+    WHERE o.status IN ('paid', 'shipped', 'delivered')
     GROUP BY o.order_id, o.customer_id
 ),
 customer_revenue AS (

@@ -1,4 +1,4 @@
--- Calculate monthly order revenue, excluding cancelled orders.
+-- Calculate monthly order revenue, counting only paid, shipped, and delivered orders.
 
 WITH monthly_order_totals AS (
     SELECT
@@ -8,7 +8,7 @@ WITH monthly_order_totals AS (
     FROM orders AS o
     INNER JOIN order_items AS oi
         ON oi.order_id = o.order_id
-    WHERE o.status <> 'cancelled'
+    WHERE o.status IN ('paid', 'shipped', 'delivered')
     GROUP BY DATE_TRUNC('month', o.order_date)::DATE, o.order_id
 )
 SELECT

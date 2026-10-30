@@ -9,6 +9,9 @@ from psycopg2.pool import ThreadedConnectionPool
 
 from ecommerce.database import pooled_connection
 
+# Must match chk_orders_status in sql/01_schema.sql.
+ORDER_STATUSES = frozenset({"pending", "paid", "shipped", "delivered", "cancelled"})
+
 
 def add_product(
     pool: ThreadedConnectionPool,
@@ -156,6 +159,40 @@ def create_order(
 
         order["total_amount"] = total
         return order
+
+
+def update_order_status(
+    pool: ThreadedConnectionPool,
+    order_id: int,
+    status: str,
+) -> dict[str, Any]:
+    """Change an order's status, for example to mark it paid or cancelled."""
+    if not isinstance(order_id, int) or isinstance(order_id, bool) or order_id <= 0:
+        raise ValueError("Order ID must be a positive integer.")
+
+    if status not in ORDER_STATUSES:
+        raise ValueError(f"Status must be one of: {', '.join(sorted(ORDER_STATUSES))}.")
+
+    with (
+        pooled_connection(pool) as connection,
+        connection,
+        connection.cursor(cursor_factory=RealDictCursor) as cursor,
+    ):
+        cursor.execute(
+            """
+            UPDATE orders
+            SET status = %s
+            WHERE order_id = %s
+            RETURNING order_id, status;
+            """,
+            (status, order_id),
+        )
+        row = cursor.fetchone()
+
+        if row is None:
+            raise ValueError(f"Order {order_id} does not exist.")
+
+        return dict(row)
 
 
 def get_customer_orders(
