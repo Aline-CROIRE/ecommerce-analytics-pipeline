@@ -1,10 +1,14 @@
-"""MongoDB repository operations for shopping carts."""
+"""MongoDB repository operations for shopping-cart sessions."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 from pymongo import ReturnDocument
 from pymongo.collection import Collection
+
+# An untouched cart session expires and is removed by the TTL index.
+CART_SESSION_TTL = timedelta(hours=24)
 
 
 def _validate_positive_integer(value: object, field_name: str) -> None:
@@ -18,20 +22,27 @@ def _utc_now() -> datetime:
     return datetime.now(UTC)
 
 
+def _activity_fields() -> dict[str, datetime]:
+    """Return fields that record activity and extend the session's expiry."""
+    now = _utc_now()
+    return {"updated_at": now, "expires_at": now + CART_SESSION_TTL}
+
+
 def create_cart(
     collection: Collection,
     customer_id: int,
 ) -> dict[str, Any]:
-    """Create an active, empty cart for a customer."""
+    """Create an active, empty cart session for a customer."""
     _validate_positive_integer(customer_id, "customer_id")
 
-    now = _utc_now()
+    activity = _activity_fields()
     document = {
+        "session_id": uuid4().hex,
         "customer_id": customer_id,
         "items": [],
         "status": "active",
-        "created_at": now,
-        "updated_at": now,
+        "created_at": activity["updated_at"],
+        **activity,
     }
 
     result = collection.insert_one(document)
@@ -58,8 +69,6 @@ def add_item(
     _validate_positive_integer(product_id, "product_id")
     _validate_positive_integer(quantity, "quantity")
 
-    now = _utc_now()
-
     # First, increment the product if it already exists.
     updated_cart = collection.find_one_and_update(
         {
@@ -69,7 +78,7 @@ def add_item(
         },
         {
             "$inc": {"items.$.quantity": quantity},
-            "$set": {"updated_at": now},
+            "$set": _activity_fields(),
         },
         return_document=ReturnDocument.AFTER,
     )
@@ -85,7 +94,7 @@ def add_item(
         },
         {
             "$push": {"items": {"product_id": product_id, "quantity": quantity}},
-            "$set": {"updated_at": now},
+            "$set": _activity_fields(),
         },
         return_document=ReturnDocument.AFTER,
     )
@@ -102,11 +111,33 @@ def add_item(
         },
         {
             "$inc": {"items.$.quantity": quantity},
-            "$set": {"updated_at": _utc_now()},
+            "$set": _activity_fields(),
         },
         return_document=ReturnDocument.AFTER,
     )
     return updated_cart is not None
+
+
+def update_quantity(
+    collection: Collection,
+    customer_id: int,
+    product_id: int,
+    quantity: int,
+) -> bool:
+    """Set the quantity of a product already in the customer's active cart."""
+    _validate_positive_integer(customer_id, "customer_id")
+    _validate_positive_integer(product_id, "product_id")
+    _validate_positive_integer(quantity, "quantity")
+
+    result = collection.update_one(
+        {
+            "customer_id": customer_id,
+            "status": "active",
+            "items.product_id": product_id,
+        },
+        {"$set": {"items.$.quantity": quantity, **_activity_fields()}},
+    )
+    return result.matched_count > 0
 
 
 def remove_item(
@@ -126,18 +157,38 @@ def remove_item(
         },
         {
             "$pull": {"items": {"product_id": product_id}},
-            "$set": {"updated_at": _utc_now()},
+            "$set": _activity_fields(),
         },
     )
     return result.modified_count > 0
 
 
+def clear_cart(
+    collection: Collection,
+    customer_id: int,
+) -> bool:
+    """Remove every item from the customer's active cart."""
+    _validate_positive_integer(customer_id, "customer_id")
+
+    result = collection.update_one(
+        {"customer_id": customer_id, "status": "active"},
+        {"$set": {"items": [], **_activity_fields()}},
+    )
+    return result.matched_count > 0
+
+
 def ensure_cart_indexes(collection: Collection) -> None:
-    """Create indexes for customer lookup and active-cart uniqueness."""
+    """Create lookup, active-cart uniqueness, and session-expiry indexes."""
     collection.create_index("customer_id")
     collection.create_index(
         "customer_id",
         unique=True,
         partialFilterExpression={"status": "active"},
         name="unique_active_cart_per_customer",
+    )
+    # MongoDB deletes a document once its expires_at time has passed.
+    collection.create_index(
+        "expires_at",
+        expireAfterSeconds=0,
+        name="expire_inactive_cart_sessions",
     )

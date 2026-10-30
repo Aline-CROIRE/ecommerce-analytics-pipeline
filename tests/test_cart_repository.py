@@ -24,6 +24,10 @@ def test_create_cart_inserts_active_cart(collection):
     assert document["items"] == []
     assert document["status"] == "active"
     assert document["created_at"] == document["updated_at"]
+    assert document["expires_at"] - document["updated_at"] == (
+        cart_repository.CART_SESSION_TTL
+    )
+    assert len(document["session_id"]) == 32
     assert result["_id"] == collection.insert_one.return_value.inserted_id
 
 
@@ -136,11 +140,11 @@ def test_remove_item_returns_false_when_product_is_missing(collection):
     assert result is False
 
 
-def test_ensure_cart_indexes_creates_lookup_and_unique_indexes(collection):
-    """Create customer lookup and unique active-cart indexes."""
+def test_ensure_cart_indexes_creates_lookup_unique_and_ttl_indexes(collection):
+    """Create customer lookup, unique active-cart, and session-expiry indexes."""
     cart_repository.ensure_cart_indexes(collection)
 
-    assert collection.create_index.call_count == 2
+    assert collection.create_index.call_count == 3
     collection.create_index.assert_any_call("customer_id")
     collection.create_index.assert_any_call(
         "customer_id",
@@ -148,3 +152,55 @@ def test_ensure_cart_indexes_creates_lookup_and_unique_indexes(collection):
         partialFilterExpression={"status": "active"},
         name="unique_active_cart_per_customer",
     )
+    collection.create_index.assert_any_call(
+        "expires_at",
+        expireAfterSeconds=0,
+        name="expire_inactive_cart_sessions",
+    )
+
+
+def test_cart_activity_extends_session_expiry(collection):
+    """Every cart change refreshes the session's expiry time."""
+    cart_repository.add_item(collection, 42, 101, 1)
+
+    update = collection.find_one_and_update.call_args.args[1]
+    assert update["$set"]["expires_at"] - update["$set"]["updated_at"] == (
+        cart_repository.CART_SESSION_TTL
+    )
+
+
+def test_update_quantity_sets_existing_item(collection):
+    """Set a product's quantity with a targeted positional update."""
+    collection.update_one.return_value.matched_count = 1
+
+    result = cart_repository.update_quantity(collection, 42, 101, 4)
+
+    query, update = collection.update_one.call_args.args[:2]
+    assert query["items.product_id"] == 101
+    assert update["$set"]["items.$.quantity"] == 4
+    assert result is True
+
+
+def test_update_quantity_returns_false_when_item_missing(collection):
+    collection.update_one.return_value.matched_count = 0
+
+    assert cart_repository.update_quantity(collection, 42, 101, 4) is False
+
+
+@pytest.mark.parametrize("quantity", [0, -2, True, 1.5])
+def test_update_quantity_rejects_invalid_quantity(collection, quantity):
+    with pytest.raises(ValueError, match="quantity"):
+        cart_repository.update_quantity(collection, 42, 101, quantity)
+
+    collection.update_one.assert_not_called()
+
+
+def test_clear_cart_empties_items(collection):
+    collection.update_one.return_value.matched_count = 1
+
+    result = cart_repository.clear_cart(collection, 42)
+
+    query, update = collection.update_one.call_args.args[:2]
+    assert query == {"customer_id": 42, "status": "active"}
+    assert update["$set"]["items"] == []
+    assert result is True
