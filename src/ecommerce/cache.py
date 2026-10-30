@@ -40,6 +40,20 @@ def create_redis_client() -> redis.Redis:
     )
 
 
+def invalidate_top_selling_products(cache: Any) -> int:
+    """
+    Delete every cached top-selling list and return how many were removed.
+
+    Call this after a committed change that can alter product rankings.
+    Redis errors are ignored: the cache TTL still bounds how stale data can be.
+    """
+    try:
+        keys = list(cache.scan_iter(match=f"{CACHE_KEY_PREFIX}:*"))
+        return cache.delete(*keys) if keys else 0
+    except redis.RedisError:
+        return 0
+
+
 def _normalize_products(
     products: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -106,6 +120,6 @@ def get_top_selling_products(
     payload = json.dumps(products)
 
     with suppress(redis.RedisError):
-        cache.setex(cache_key, ttl, payload)
+        cache.set(cache_key, payload, ex=ttl)
 
     return products
