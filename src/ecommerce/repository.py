@@ -14,6 +14,12 @@ from ecommerce.database import pooled_connection
 ORDER_STATUSES = frozenset({"pending", "paid", "shipped", "delivered", "cancelled"})
 
 
+def _validate_positive_id(value: object, label: str) -> None:
+    """Reject booleans, non-integers, and IDs that are not positive."""
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise ValueError(f"{label} must be a positive integer.")
+
+
 def add_product(
     pool: ThreadedConnectionPool,
     name: str,
@@ -28,8 +34,8 @@ def add_product(
     If a Redis client is given, cached top-selling lists are cleared after the
     insert commits, because a new product can enter a partly filled ranking.
     """
-    if not name.strip():
-        raise ValueError("Product name cannot be empty.")
+    if not isinstance(name, str) or not name.strip():
+        raise ValueError("Product name must be a non-empty string.")
 
     try:
         product_price = Decimal(str(price))
@@ -152,6 +158,8 @@ def create_order(
     Each item must contain product_id and quantity. Product prices are read
     from PostgreSQL and copied into order_items as historical purchase prices.
     """
+    _validate_positive_id(customer_id, "Customer ID")
+
     if not items:
         raise ValueError("An order must contain at least one item.")
 
@@ -165,12 +173,7 @@ def create_order(
         except (KeyError, TypeError) as error:
             raise ValueError("Each item needs product_id and quantity.") from error
 
-        if (
-            not isinstance(product_id, int)
-            or isinstance(product_id, bool)
-            or product_id <= 0
-        ):
-            raise ValueError("Product IDs must be positive integers.")
+        _validate_positive_id(product_id, "Product ID")
 
         if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
             raise ValueError("Quantities must be positive integers.")
@@ -253,8 +256,7 @@ def update_order_status(
     Status changes decide whether an order counts as a sale, so if a Redis
     client is given, cached top-selling lists are cleared after the commit.
     """
-    if not isinstance(order_id, int) or isinstance(order_id, bool) or order_id <= 0:
-        raise ValueError("Order ID must be a positive integer.")
+    _validate_positive_id(order_id, "Order ID")
 
     if status not in ORDER_STATUSES:
         raise ValueError(f"Status must be one of: {', '.join(sorted(ORDER_STATUSES))}.")
@@ -288,7 +290,14 @@ def get_customer_orders(
     pool: ThreadedConnectionPool,
     customer_id: int,
 ) -> list[dict[str, Any]]:
-    """Return a customer's orders, totals, and item details."""
+    """
+    Return a customer's orders, newest first, with totals and item details.
+
+    Money values inside the items JSON are sent as text and converted to
+    Decimal, because JSON numbers would otherwise be decoded as floats.
+    """
+    _validate_positive_id(customer_id, "Customer ID")
+
     with (
         pooled_connection(pool) as connection,
         connection,
@@ -310,8 +319,8 @@ def get_customer_orders(
                             'product_id', p.product_id,
                             'product_name', p.name,
                             'quantity', oi.quantity,
-                            'unit_price', oi.unit_price,
-                            'line_total', oi.quantity * oi.unit_price
+                            'unit_price', oi.unit_price::TEXT,
+                            'line_total', (oi.quantity * oi.unit_price)::TEXT
                         )
                         ORDER BY p.name
                     ) FILTER (WHERE oi.order_item_id IS NOT NULL),
@@ -328,4 +337,11 @@ def get_customer_orders(
             """,
             (customer_id,),
         )
-        return [dict(row) for row in cursor.fetchall()]
+        orders = [dict(row) for row in cursor.fetchall()]
+
+    for order in orders:
+        for item in order["items"]:
+            item["unit_price"] = Decimal(item["unit_price"])
+            item["line_total"] = Decimal(item["line_total"])
+
+    return orders
