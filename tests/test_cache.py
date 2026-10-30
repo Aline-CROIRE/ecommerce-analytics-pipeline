@@ -151,6 +151,19 @@ def test_redis_write_failure_does_not_break_database_result(monkeypatch):
     assert result == [{"product_id": 1, "product_name": "Mouse"}]
 
 
+def test_create_redis_client_uses_configured_host_and_port(monkeypatch):
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.setenv("REDIS_HOST", "redis.internal")
+    monkeypatch.setenv("REDIS_PORT", "6380")
+
+    client = cache.create_redis_client()
+    connection_kwargs = client.connection_pool.connection_kwargs
+
+    assert connection_kwargs["host"] == "redis.internal"
+    assert connection_kwargs["port"] == 6380
+    assert connection_kwargs["socket_connect_timeout"] == 5
+
+
 def test_corrupt_cached_json_is_deleted_and_reloaded(monkeypatch):
     mock_database(monkeypatch, [{"product_id": 2, "product_name": "Monitor"}])
     redis_cache = FakeRedis(value="{invalid json")
