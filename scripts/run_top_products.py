@@ -31,14 +31,14 @@ def main() -> None:
         cache_key = f"{CACHE_KEY_PREFIX}:{DEFAULT_PRODUCT_LIMIT}"
         client.delete(cache_key)
 
-        print("\n=== FIRST REQUEST: DATABASE LOAD ===")
+        print("\nFirst request (loads from PostgreSQL)")
         first_result = get_top_selling_products(pool, client)
         pprint(first_result, sort_dicts=False)
 
         ttl = client.ttl(cache_key)
         print(f"\nCache TTL after first request: {ttl} seconds")
 
-        print("\n=== SECOND REQUEST: REDIS CACHE HIT ===")
+        print("\nSecond request (served from Redis)")
         # None is intentional: a cache hit must not need a database connection.
         second_result = get_top_selling_products(None, client)
         pprint(second_result, sort_dicts=False)

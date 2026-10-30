@@ -1,13 +1,7 @@
 """
-Interactive e-commerce shop built on the project modules.
+Console shop for trying out the project.
 
-A menu-driven console app: sign in or register, browse the Redis-cached best
-sellers, search products by JSONB attributes, manage a MongoDB cart, check out
-into a PostgreSQL order, pay or cancel orders, add products, and view the SQL
-analytics reports and index performance.
-
-Usage:
-    python scripts/demo.py
+Run it with: python scripts/demo.py
 """
 
 import sys
@@ -58,23 +52,23 @@ CUSTOMER_STATUSES = {"p": "paid", "c": "cancelled"}
 ADMIN_STATUSES = {"s": "shipped", "d": "delivered"}
 
 MENU = """
-------------------------------------------------------------
- E-COMMERCE SHOP {signed_in}
-------------------------------------------------------------
- Account      1  Sign in or register
- Shop         2  Best sellers (Redis cache)
-              3  Search products (JSONB metadata)
- Cart         4  Add item to cart        (MongoDB)
-              5  View cart
-              6  Change quantity / remove item
-              7  Checkout                (cart -> PostgreSQL order)
- Orders       8  My orders
-              9  Pay, cancel, ship, or deliver an order
- Admin       10  Add a new product
-             11  Sales reports           (CTEs + RANK)
-             12  Index performance check (EXPLAIN ANALYZE)
-              0  Exit
-------------------------------------------------------------"""
+
+E-Commerce Shop {signed_in}
+
+   1  Sign in or register
+   2  Best sellers
+   3  Search products
+   4  Add item to cart
+   5  View cart
+   6  Change quantity or remove item
+   7  Checkout
+   8  My orders
+   9  Pay, cancel, ship or deliver an order
+  10  Add a new product
+  11  Sales reports
+  12  Index performance check
+   0  Exit
+"""
 
 
 class Shop:
@@ -85,8 +79,6 @@ class Shop:
         self.cache = cache
         self.carts = carts
         self.customer: dict[str, Any] | None = None
-
-    # ----- input helpers -------------------------------------------------
 
     @staticmethod
     def ask(prompt: str) -> str:
@@ -119,8 +111,6 @@ class Shop:
             else:
                 attributes[key] = value
         return attributes
-
-    # ----- menu actions --------------------------------------------------
 
     def sign_in(self) -> None:
         email = self.ask("Email")
@@ -329,8 +319,6 @@ class Shop:
             "the indexes pay off."
         )
 
-    # ----- main loop -----------------------------------------------------
-
     def run(self) -> None:
         actions = {
             "1": self.sign_in,
@@ -348,7 +336,7 @@ class Shop:
         }
         while True:
             signed_in = (
-                f"- signed in as {self.customer['email']}" if self.customer else ""
+                f"(signed in as {self.customer['email']})" if self.customer else ""
             )
             print(MENU.format(signed_in=signed_in))
             try:

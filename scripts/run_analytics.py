@@ -20,7 +20,7 @@ def main() -> None:
     pool = create_pool()
 
     try:
-        print("\n=== E-COMMERCE ANALYTICS REPORTS ===")
+        print("\nAnalytics reports")
         reports = run_analytics(pool)
 
         for filename, rows in reports.items():
@@ -28,7 +28,7 @@ def main() -> None:
             print(f"Showing {min(len(rows), PREVIEW_ROWS)} of {len(rows)} rows")
             pprint(rows[:PREVIEW_ROWS], sort_dicts=False)
 
-        print("\n=== QUERY PLAN COMPARISON ===")
+        print("\nQuery plan comparison")
         compare_index_plans(pool)
 
         print("\nAnalytics and query-plan comparison completed.")
