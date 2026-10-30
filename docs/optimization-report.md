@@ -80,8 +80,8 @@ Median of 7 runs, from two separate benchmark runs:
 
 | Query | Without index | With index | Run 1 (ms) | Run 2 (ms) | Speedup |
 |---|---|---|---|---|---:|
-| Customer orders | Seq Scan | Index Scan on `idx_orders_customer_id` | 10.192 → 0.053 | 10.159 → 0.043 | ~190–240× |
-| Product metadata | Seq Scan | Bitmap Index Scan on `idx_products_metadata_gin` | 16.234 → 1.227 | 11.848 → 0.914 | ~13× |
+| Customer orders | Seq Scan | Index Scan on `idx_orders_customer_id` | 10.192 to 0.053 | 10.159 to 0.043 | ~190-240x |
+| Product metadata | Seq Scan | Bitmap Index Scan on `idx_products_metadata_gin` | 16.234 to 1.227 | 11.848 to 0.914 | ~13x |
 
 Both queries returned the same rows before and after (10 orders, 100 products).
 
@@ -137,7 +137,7 @@ Execution Time: 1.241 ms
   query became two orders of magnitude faster. This is the access pattern of
   `get_customer_orders()`, which runs for every customer history request.
 - **GIN on `products.metadata`:** pages read fell from 2,120 to 119 and the
-  query became about 13× faster. The gain is smaller than for the B-tree
+  query became about 13x faster. The gain is smaller than for the B-tree
   because the 100 matching products sit on 100 different pages, all of which
   must still be read and rechecked.
 - **Planner estimates for JSONB:** PostgreSQL estimated 5 matching products but
@@ -171,7 +171,7 @@ Execution Time: 1.241 ms
 ## 6. Conclusion
 
 On a 670,000-row dataset, both indexes are used by the planner and give a
-measurable improvement: about 200× for customer order lookups (B-tree) and
-about 13× for JSONB metadata searches (GIN), with the same results returned.
+measurable improvement: about 200x for customer order lookups (B-tree) and
+about 13x for JSONB metadata searches (GIN), with the same results returned.
 On the tiny sample dataset, sequential scans remain the better plan, which is
 why the measurement uses realistic data volumes.
