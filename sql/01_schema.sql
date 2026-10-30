@@ -4,14 +4,14 @@
 
 BEGIN;
 
-CREATE TABLE customers (
+CREATE TABLE IF NOT EXISTS customers (
     customer_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     full_name VARCHAR(150) NOT NULL,
     email VARCHAR(255) NOT NULL UNIQUE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
     product_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     name VARCHAR(200) NOT NULL,
     description TEXT,
@@ -21,7 +21,7 @@ CREATE TABLE products (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
     order_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     customer_id BIGINT NOT NULL,
     order_date TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -34,7 +34,7 @@ CREATE TABLE orders (
         CHECK (status IN ('pending', 'paid', 'shipped', 'delivered', 'cancelled'))
 );
 
-CREATE TABLE order_items (
+CREATE TABLE IF NOT EXISTS order_items (
     order_item_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     order_id BIGINT NOT NULL,
     product_id BIGINT NOT NULL,

@@ -106,14 +106,7 @@ def compare_index_plans(pool: ThreadedConnectionPool) -> dict[str, dict[str, str
             (Json({"category": "accessories"}),),
         )
 
-        cursor.execute("""
-            CREATE INDEX idx_orders_customer_id
-            ON orders (customer_id);
-            """)
-        cursor.execute("""
-            CREATE INDEX idx_products_metadata_gin
-            ON products USING GIN (metadata);
-            """)
+        cursor.execute(load_sql("05_indexes.sql"))
         cursor.execute("ANALYZE orders;")
         cursor.execute("ANALYZE products;")
 
