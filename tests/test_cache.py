@@ -18,20 +18,24 @@ class FakeRedis:
         self.value = value
         self.data = {}
         self.get_calls = []
-        self.setex_calls = []
+        self.set_calls = []
         self.delete_calls = []
 
     def get(self, key):
         self.get_calls.append(key)
         return self.value if self.value is not None else self.data.get(key)
 
-    def setex(self, key, ttl, value):
-        self.setex_calls.append((key, ttl, value))
+    def set(self, key, value, ex):
+        self.set_calls.append((key, ex, value))
         self.data[key] = value
 
-    def delete(self, key):
-        self.delete_calls.append(key)
-        self.data.pop(key, None)
+    def delete(self, *keys):
+        self.delete_calls.extend(keys)
+        return sum(self.data.pop(key, None) is not None for key in keys)
+
+    def scan_iter(self, match):
+        prefix = match.rstrip("*")
+        return [key for key in self.data if key.startswith(prefix)]
 
 
 def mock_database(monkeypatch, rows):
@@ -62,7 +66,7 @@ def test_cache_hit_returns_cached_products_without_querying_database():
 
     assert result == products
     assert redis_cache.get_calls == [f"{cache.CACHE_KEY_PREFIX}:10"]
-    assert redis_cache.setex_calls == []
+    assert redis_cache.set_calls == []
 
 
 def test_cache_miss_queries_database_and_stores_results(monkeypatch):
@@ -93,9 +97,9 @@ def test_cache_miss_queries_database_and_stores_results(monkeypatch):
         }
     ]
     cursor.execute.assert_called_once_with("SELECT test", (10,))
-    assert len(redis_cache.setex_calls) == 1
+    assert len(redis_cache.set_calls) == 1
 
-    key, ttl, payload = redis_cache.setex_calls[0]
+    key, ttl, payload = redis_cache.set_calls[0]
     assert key == f"{cache.CACHE_KEY_PREFIX}:10"
     assert ttl == 120
     assert json.loads(payload) == result
@@ -140,7 +144,7 @@ def test_redis_write_failure_does_not_break_database_result(monkeypatch):
     mock_database(monkeypatch, [{"product_id": 1, "product_name": "Mouse"}])
 
     class UnavailableRedis(FakeRedis):
-        def setex(self, key, ttl, value):
+        def set(self, key, value, ex):
             raise redis.RedisError("Redis unavailable")
 
     result = cache.get_top_selling_products(
@@ -175,4 +179,33 @@ def test_corrupt_cached_json_is_deleted_and_reloaded(monkeypatch):
 
     assert result == [{"product_id": 2, "product_name": "Monitor"}]
     assert redis_cache.delete_calls == [f"{cache.CACHE_KEY_PREFIX}:10"]
-    assert len(redis_cache.setex_calls) == 1
+    assert len(redis_cache.set_calls) == 1
+
+
+def test_invalidate_removes_only_top_selling_keys():
+    redis_cache = FakeRedis()
+    redis_cache.data = {
+        f"{cache.CACHE_KEY_PREFIX}:10": "[]",
+        f"{cache.CACHE_KEY_PREFIX}:5": "[]",
+        "ecommerce:other": "keep",
+    }
+
+    removed = cache.invalidate_top_selling_products(redis_cache)
+
+    assert removed == 2
+    assert redis_cache.data == {"ecommerce:other": "keep"}
+
+
+def test_invalidate_with_empty_cache_deletes_nothing():
+    redis_cache = FakeRedis()
+
+    assert cache.invalidate_top_selling_products(redis_cache) == 0
+    assert redis_cache.delete_calls == []
+
+
+def test_invalidate_ignores_redis_failure():
+    class UnavailableRedis(FakeRedis):
+        def scan_iter(self, match):
+            raise redis.RedisError("Redis unavailable")
+
+    assert cache.invalidate_top_selling_products(UnavailableRedis()) == 0

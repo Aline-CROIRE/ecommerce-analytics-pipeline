@@ -7,6 +7,7 @@ from typing import Any
 from psycopg2.extras import Json, RealDictCursor
 from psycopg2.pool import ThreadedConnectionPool
 
+from ecommerce.cache import invalidate_top_selling_products
 from ecommerce.database import pooled_connection
 
 # Must match chk_orders_status in sql/01_schema.sql.
@@ -19,8 +20,14 @@ def add_product(
     price: Decimal | int | str,
     description: str | None = None,
     metadata: dict[str, Any] | None = None,
+    cache: Any | None = None,
 ) -> dict[str, Any]:
-    """Insert a product and return its database record."""
+    """
+    Insert a product and return its database record.
+
+    If a Redis client is given, cached top-selling lists are cleared after the
+    insert commits, because a new product can enter a partly filled ranking.
+    """
     if not name.strip():
         raise ValueError("Product name cannot be empty.")
 
@@ -58,7 +65,12 @@ def add_product(
                 Json(product_metadata),
             ),
         )
-        return dict(cursor.fetchone())
+        product = dict(cursor.fetchone())
+
+    if cache is not None:
+        invalidate_top_selling_products(cache)
+
+    return product
 
 
 def find_products_by_metadata(
@@ -233,8 +245,14 @@ def update_order_status(
     pool: ThreadedConnectionPool,
     order_id: int,
     status: str,
+    cache: Any | None = None,
 ) -> dict[str, Any]:
-    """Change an order's status, for example to mark it paid or cancelled."""
+    """
+    Change an order's status, for example to mark it paid or cancelled.
+
+    Status changes decide whether an order counts as a sale, so if a Redis
+    client is given, cached top-selling lists are cleared after the commit.
+    """
     if not isinstance(order_id, int) or isinstance(order_id, bool) or order_id <= 0:
         raise ValueError("Order ID must be a positive integer.")
 
@@ -260,7 +278,10 @@ def update_order_status(
         if row is None:
             raise ValueError(f"Order {order_id} does not exist.")
 
-        return dict(row)
+    if cache is not None:
+        invalidate_top_selling_products(cache)
+
+    return dict(row)
 
 
 def get_customer_orders(
