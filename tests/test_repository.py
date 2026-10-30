@@ -9,6 +9,7 @@ from ecommerce.repository import (
     add_product,
     create_order,
     get_customer_orders,
+    update_order_status,
 )
 
 
@@ -109,3 +110,33 @@ def test_add_product_rejects_invalid_price(db_context, price):
             name=f'{db_context["product_prefix"]}-invalid',
             price=price,
         )
+
+
+def test_update_order_status_changes_status(db_context):
+    pool = db_context["pool"]
+    order = create_order(
+        pool,
+        customer_id=db_context["customer_id"],
+        items=[{"product_id": db_context["product_id"], "quantity": 1}],
+    )
+
+    updated = update_order_status(pool, order["order_id"], "paid")
+
+    assert updated == {"order_id": order["order_id"], "status": "paid"}
+    orders = get_customer_orders(pool, db_context["customer_id"])
+    assert orders[0]["status"] == "paid"
+
+
+def test_update_order_status_rejects_missing_order(db_context):
+    with pytest.raises(ValueError, match="does not exist"):
+        update_order_status(db_context["pool"], 2_000_000_000, "paid")
+
+
+@pytest.mark.parametrize(
+    ("order_id", "status"),
+    [(1, "refunded"), (1, ""), (0, "paid"), (True, "paid"), ("1", "paid")],
+)
+def test_update_order_status_rejects_invalid_input(order_id, status):
+    # Validation runs before any database access, so no pool is needed.
+    with pytest.raises(ValueError):
+        update_order_status(None, order_id, status)

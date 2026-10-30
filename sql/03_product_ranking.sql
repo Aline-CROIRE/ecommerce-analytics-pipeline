@@ -1,6 +1,7 @@
 
 -- Rank products by units sold, with revenue as a secondary metric.
--- Include every product, even if it has no sales from non-cancelled orders.
+-- Include every product, even if it has no sales.
+-- Sales count only paid, shipped, and delivered orders.
 
 WITH valid_sales AS (
     SELECT
@@ -10,7 +11,7 @@ WITH valid_sales AS (
     FROM order_items AS oi
     INNER JOIN orders AS o
         ON o.order_id = oi.order_id
-    WHERE o.status <> 'cancelled'
+    WHERE o.status IN ('paid', 'shipped', 'delivered')
 ),
 product_sales AS (
     SELECT

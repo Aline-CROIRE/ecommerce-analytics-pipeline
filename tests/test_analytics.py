@@ -10,7 +10,23 @@ from ecommerce.analytics import (
     load_sql,
     run_analytics,
 )
-from ecommerce.repository import create_order
+from ecommerce.repository import create_order, update_order_status
+
+
+def _order_with_status(pool, customer_id, product_id, quantity, status):
+    """Create an order and move it to the requested status."""
+    order = create_order(
+        pool,
+        customer_id=customer_id,
+        items=[{"product_id": product_id, "quantity": quantity}],
+    )
+    if status != "pending":
+        update_order_status(pool, order["order_id"], status)
+    return order
+
+
+def _report_row(reports, filename, key, value):
+    return next(row for row in reports[filename] if row[key] == value)
 
 
 def test_load_sql_reads_existing_report():
@@ -33,11 +49,7 @@ def test_run_analytics_returns_all_reports(db_context):
     customer_id = db_context["customer_id"]
     product_id = db_context["product_id"]
 
-    order = create_order(
-        pool,
-        customer_id=customer_id,
-        items=[{"product_id": product_id, "quantity": 2}],
-    )
+    order = _order_with_status(pool, customer_id, product_id, 2, "paid")
 
     reports = run_analytics(pool)
 
@@ -66,6 +78,54 @@ def test_run_analytics_returns_all_reports(db_context):
     assert all(row["total_revenue"] >= Decimal("0") for row in monthly_rows)
 
     assert order["total_amount"] == Decimal("25.00")
+
+
+def test_pending_and_cancelled_orders_are_not_revenue(db_context):
+    """Only paid, shipped, and delivered orders count towards sales."""
+    pool = db_context["pool"]
+    customer_id = db_context["customer_id"]
+    product_id = db_context["product_id"]
+
+    _order_with_status(pool, customer_id, product_id, 2, "paid")
+    _order_with_status(pool, customer_id, product_id, 5, "pending")
+    _order_with_status(pool, customer_id, product_id, 7, "cancelled")
+
+    reports = run_analytics(pool)
+
+    customer = _report_row(
+        reports, "02_customer_revenue.sql", "customer_id", customer_id
+    )
+    assert customer["total_orders"] == 1
+    assert customer["total_revenue"] == Decimal("25.00")
+
+    product = _report_row(reports, "03_product_ranking.sql", "product_id", product_id)
+    assert product["units_sold"] == 2
+    assert product["sales_revenue"] == Decimal("25.00")
+
+
+def test_entities_without_sales_are_reported_with_zero(db_context):
+    """Customers and products with no valid sales still appear in reports."""
+    pool = db_context["pool"]
+    customer_id = db_context["customer_id"]
+    product_id = db_context["product_id"]
+
+    _order_with_status(pool, customer_id, product_id, 3, "cancelled")
+
+    reports = run_analytics(pool)
+
+    customer = _report_row(
+        reports, "02_customer_revenue.sql", "customer_id", customer_id
+    )
+    assert customer["total_orders"] == 0
+    assert customer["total_revenue"] == Decimal("0")
+
+    product = _report_row(reports, "03_product_ranking.sql", "product_id", product_id)
+    assert product["units_sold"] == 0
+    assert product["sales_revenue"] == Decimal("0")
+
+    # Products with equal sales share a rank, so zero-sales products tie last.
+    max_rank = max(row["sales_rank"] for row in reports["03_product_ranking.sql"])
+    assert product["sales_rank"] == max_rank
 
 
 def test_compare_index_plans_returns_before_and_after_results(db_context):
