@@ -61,6 +61,74 @@ def add_product(
         return dict(cursor.fetchone())
 
 
+def find_products_by_metadata(
+    pool: ThreadedConnectionPool,
+    criteria: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """
+    Return products whose JSONB metadata contains all the given attributes.
+
+    Uses the @> containment operator, which idx_products_metadata_gin supports.
+    Example: {"category": "clothing", "sizes": ["M"]} matches clothing in size M.
+    """
+    if not isinstance(criteria, dict) or not criteria:
+        raise ValueError("Metadata criteria must be a non-empty dictionary.")
+
+    with (
+        pooled_connection(pool) as connection,
+        connection,
+        connection.cursor(cursor_factory=RealDictCursor) as cursor,
+    ):
+        cursor.execute(
+            """
+            SELECT
+                product_id,
+                name,
+                price,
+                metadata ->> 'category' AS category,
+                metadata
+            FROM products
+            WHERE metadata @> %s
+            ORDER BY product_id;
+            """,
+            (Json(criteria),),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
+def find_products_with_attribute(
+    pool: ThreadedConnectionPool,
+    attribute: str,
+) -> list[dict[str, Any]]:
+    """
+    Return products whose metadata defines the given top-level attribute.
+
+    Uses the ? key-exists operator, which idx_products_metadata_gin supports.
+    """
+    if not isinstance(attribute, str) or not attribute.strip():
+        raise ValueError("Attribute must be a non-empty string.")
+
+    with (
+        pooled_connection(pool) as connection,
+        connection,
+        connection.cursor(cursor_factory=RealDictCursor) as cursor,
+    ):
+        cursor.execute(
+            """
+            SELECT
+                product_id,
+                name,
+                price,
+                metadata -> %s AS attribute_value
+            FROM products
+            WHERE metadata ? %s
+            ORDER BY product_id;
+            """,
+            (attribute, attribute),
+        )
+        return [dict(row) for row in cursor.fetchall()]
+
+
 def create_order(
     pool: ThreadedConnectionPool,
     customer_id: int,
