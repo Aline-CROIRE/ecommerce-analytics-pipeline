@@ -7,8 +7,57 @@ functions, and query performance is measured with `EXPLAIN ANALYZE`.
 
 Built for the **PBEM04 – Database Fundamentals** lab.
 
+## Try it: interactive shop
+
+After [setup](#setup), start the shop and use it like a customer:
+
+```powershell
+python scripts/demo.py
+```
+
+```text
+ Account      1  Sign in or register
+ Shop         2  Best sellers (Redis cache)
+              3  Search products (JSONB metadata)
+ Cart         4  Add item to cart        (MongoDB)
+              5  View cart
+              6  Change quantity / remove item
+              7  Checkout                (cart -> PostgreSQL order)
+ Orders       8  My orders
+              9  Pay, cancel, ship, or deliver an order
+ Admin       10  Add a new product
+             11  Sales reports           (CTEs + RANK)
+             12  Index performance check (EXPLAIN ANALYZE)
+              0  Exit
+```
+
+Every option calls the project modules (`repository`, `cache`,
+`cart_repository`, `checkout`, `analytics`); the app contains no SQL itself.
+
+**Suggested walkthrough**
+
+1. **Register** (option 1) with any email address.
+2. **Search** (3) for `category=clothing sizes=M`, or `?ports` for products
+   that have a `ports` attribute.
+3. **Add to cart** (4) using a product ID from the results, then **view** (5)
+   and **change** (6) the cart.
+4. **Checkout** (7): the MongoDB cart becomes a PostgreSQL order in one
+   transaction. **My orders** (8) shows it as `pending`.
+5. **Pay** (9) for the order. It now counts as a sale, and the cached best
+   sellers are cleared.
+6. **Best sellers** (2) twice: the first request is rebuilt from PostgreSQL,
+   the second is served from Redis in about 1 ms.
+7. **Add a product** (10) with attributes such as `category=home colors=oak`.
+8. **Sales reports** (11) and **index performance** (12). For a meaningful
+   index comparison, load the benchmark data first:
+   `python scripts/run_benchmark.py --load`.
+
+Mistakes such as an unknown product ID, an invalid email, or checking out an
+empty cart are explained without stopping the app.
+
 ## Contents
 
+- [Try it: interactive shop](#try-it-interactive-shop)
 - [Architecture](#architecture)
 - [Project structure](#project-structure)
 - [Database design](#database-design)
@@ -198,6 +247,7 @@ All settings are read from `.env` (never committed). See
 
 | Command | What it does |
 |---|---|
+| `python scripts/demo.py` | Interactive shop for trying every feature (see [Try it](#try-it-interactive-shop)) |
 | `python scripts/setup_database.py` | Applies `01_schema.sql` and `05_indexes.sql`, then lists tables and indexes |
 | `python scripts/load_sample_data.py` | Loads `07_sample_data.sql` and prints row counts |
 | `python scripts/run_analytics.py` | Runs the revenue and ranking reports and prints before/after query plans |
@@ -359,7 +409,7 @@ black --check .
   services are not reachable. PostgreSQL tests need the database running.
 - Test data uses unique names and is removed after each test.
 
-Current result: **141 passed, 98% coverage**.
+Current result: **152 passed, 98% coverage**.
 
 ## Development workflow
 

@@ -1,9 +1,10 @@
-"""Database operations for products, orders, and customer history."""
+"""Database operations for customers, products, orders, and order history."""
 
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Any
 
+from psycopg2 import errors
 from psycopg2.extras import Json, RealDictCursor
 from psycopg2.pool import ThreadedConnectionPool
 
@@ -18,6 +19,94 @@ def _validate_positive_id(value: object, label: str) -> None:
     """Reject booleans, non-integers, and IDs that are not positive."""
     if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
         raise ValueError(f"{label} must be a positive integer.")
+
+
+def _normalize_email(email: object) -> str:
+    """Return a trimmed, lower-case email address or raise ValueError."""
+    if not isinstance(email, str) or "@" not in email.strip():
+        raise ValueError("Email must be a valid email address.")
+    return email.strip().lower()
+
+
+def add_customer(
+    pool: ThreadedConnectionPool,
+    full_name: str,
+    email: str,
+) -> dict[str, Any]:
+    """Register a customer; the email address must not already be in use."""
+    if not isinstance(full_name, str) or not full_name.strip():
+        raise ValueError("Customer name must be a non-empty string.")
+    normalized_email = _normalize_email(email)
+
+    try:
+        with (
+            pooled_connection(pool) as connection,
+            connection,
+            connection.cursor(cursor_factory=RealDictCursor) as cursor,
+        ):
+            cursor.execute(
+                """
+                INSERT INTO customers (full_name, email)
+                VALUES (%s, %s)
+                RETURNING customer_id, full_name, email, created_at;
+                """,
+                (full_name.strip(), normalized_email),
+            )
+            return dict(cursor.fetchone())
+    except errors.UniqueViolation as error:
+        raise ValueError(
+            f"A customer with email {normalized_email} already exists."
+        ) from error
+
+
+def get_customer_by_email(
+    pool: ThreadedConnectionPool,
+    email: str,
+) -> dict[str, Any] | None:
+    """Return the customer with this email address, or None."""
+    normalized_email = _normalize_email(email)
+
+    with (
+        pooled_connection(pool) as connection,
+        connection,
+        connection.cursor(cursor_factory=RealDictCursor) as cursor,
+    ):
+        cursor.execute(
+            """
+            SELECT customer_id, full_name, email, created_at
+            FROM customers
+            WHERE lower(email) = %s;
+            """,
+            (normalized_email,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+
+def get_products(
+    pool: ThreadedConnectionPool,
+    product_ids: Sequence[int],
+) -> dict[int, dict[str, Any]]:
+    """Return the requested products keyed by ID; unknown IDs are left out."""
+    for product_id in product_ids:
+        _validate_positive_id(product_id, "Product ID")
+    if not product_ids:
+        return {}
+
+    with (
+        pooled_connection(pool) as connection,
+        connection,
+        connection.cursor(cursor_factory=RealDictCursor) as cursor,
+    ):
+        cursor.execute(
+            """
+            SELECT product_id, name, description, price, metadata
+            FROM products
+            WHERE product_id = ANY(%s);
+            """,
+            (list(product_ids),),
+        )
+        return {row["product_id"]: dict(row) for row in cursor.fetchall()}
 
 
 def add_product(
