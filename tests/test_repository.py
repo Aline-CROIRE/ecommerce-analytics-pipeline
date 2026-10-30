@@ -7,9 +7,12 @@ import pytest
 
 from ecommerce.database import pooled_connection
 from ecommerce.repository import (
+    add_customer,
     add_product,
     create_order,
+    get_customer_by_email,
     get_customer_orders,
+    get_products,
     update_order_status,
 )
 
@@ -272,3 +275,58 @@ def test_update_order_status_rejects_invalid_input(order_id, status):
     # Validation runs before any database access, so no pool is needed.
     with pytest.raises(ValueError):
         update_order_status(None, order_id, status)
+
+
+def test_add_customer_and_find_by_email(db_context):
+    pool = db_context["pool"]
+    email = f'{db_context["product_prefix"]}@Example.com'
+
+    try:
+        customer = add_customer(pool, "  New Shopper ", email)
+
+        assert customer["full_name"] == "New Shopper"
+        assert customer["email"] == email.lower()
+        assert get_customer_by_email(pool, email.upper()) == customer
+
+        with pytest.raises(ValueError, match="already exists"):
+            add_customer(pool, "Duplicate", email)
+    finally:
+        with (
+            pooled_connection(pool) as connection,
+            connection,
+            connection.cursor() as cursor,
+        ):
+            cursor.execute("DELETE FROM customers WHERE email = %s;", (email.lower(),))
+
+
+def test_get_customer_by_email_returns_none_when_missing(db_context):
+    assert get_customer_by_email(db_context["pool"], "nobody@example.invalid") is None
+
+
+@pytest.mark.parametrize(
+    ("full_name", "email"),
+    [
+        ("", "a@example.com"),
+        (None, "a@example.com"),
+        ("Ann", "no-at-sign"),
+        ("Ann", None),
+    ],
+)
+def test_add_customer_rejects_invalid_input(full_name, email):
+    with pytest.raises(ValueError):
+        add_customer(None, full_name, email)
+
+
+def test_get_products_returns_known_ids_only(db_context):
+    product_id = db_context["product_id"]
+
+    products = get_products(db_context["pool"], [product_id, 2_000_000_000])
+
+    assert list(products) == [product_id]
+    assert products[product_id]["price"] == Decimal("12.50")
+    assert get_products(None, []) == {}
+
+
+def test_get_products_rejects_invalid_ids():
+    with pytest.raises(ValueError, match="Product ID"):
+        get_products(None, [1, "2"])
