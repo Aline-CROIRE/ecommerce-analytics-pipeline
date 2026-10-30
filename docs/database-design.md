@@ -78,6 +78,7 @@ erDiagram
     PRODUCTS {
         bigint product_id PK
         varchar name
+        text description
         numeric price
         jsonb metadata
         timestamptz created_at
@@ -134,45 +135,59 @@ insertion, update, and deletion anomalies.
 
 ## 5. Integrity Rules
 
-The planned schema will enforce the following rules:
+The schema in [`sql/01_schema.sql`](../sql/01_schema.sql) enforces:
 
-- Every table has a primary key.
+- Every table has an identity primary key.
 - Customer email addresses are required and unique.
 - Required attributes use `NOT NULL`.
-- Foreign keys protect relationships between records.
-- Product prices cannot be negative.
+- Foreign keys protect relationships: deleting a customer or product that is
+  still referenced is rejected (`ON DELETE RESTRICT`), and deleting an order
+  removes its items (`ON DELETE CASCADE`).
+- Product prices and historical unit prices cannot be negative.
 - Order-item quantities must be positive.
-- Historical unit prices cannot be negative.
-- Monetary values use PostgreSQL `NUMERIC`, not binary floating-point
-  types.
-- Order creation must use a transaction so related changes succeed
-  together or are rolled back together.
+- A product appears at most once per order (`UNIQUE (order_id, product_id)`);
+  quantities are combined instead.
+- Order status is limited to `pending`, `paid`, `shipped`, `delivered`, and
+  `cancelled`.
+- Product metadata must be a JSON object, not an array or scalar.
+- Monetary values use PostgreSQL `NUMERIC`, not binary floating-point types.
+- Order creation runs in one transaction (`create_order()` in
+  `src/ecommerce/repository.py`), so an order and its items are saved together
+  or not at all.
+
+Rules that span rows are enforced in application code: an order must contain
+at least one item, and every referenced customer and product must exist
+before the order is written.
 
 ## 6. JSONB Decision
 
-PostgreSQL JSONB will store flexible product metadata, for example
-colour, size, or other attributes that vary by product category.
+PostgreSQL JSONB stores flexible product metadata: attributes that vary by
+category, such as `sizes` and `colors` for clothing or `ports` for electronics.
 
-Core fields used for relationships, constraints, and frequent queries
-remain in normal relational columns. JSONB is not a replacement for
-the relational schema.
+Core fields used for relationships, constraints, and calculations (keys,
+names, and prices) remain in relational columns. JSONB is not a replacement
+for the relational schema.
 
-## 7. Performance Plan
+A GIN index on `metadata` supports the containment (`@>`) and key-exists (`?`)
+queries used by `find_products_by_metadata()` and
+`find_products_with_attribute()`. `category` is stored in JSONB in this
+project; if it became a frequent filter, a relational column with a B-tree
+index would give the planner better statistics.
 
-Performance optimizations will be measured rather than assumed.
+## 7. Revenue Rules
 
-- Use `EXPLAIN ANALYZE` to inspect representative queries.
-- Compare query performance before and after adding a B-tree index
-  on `orders.customer_id`.
-- Evaluate a GIN index for queries that filter JSONB metadata.
-- Record query plans and timings in the final optimization report.
-- Consider the write and storage costs of additional indexes.
+Only orders with status `paid`, `shipped`, or `delivered` count as revenue.
+`pending` orders are unpaid and `cancelled` orders never completed, so
+both are excluded from the analytics reports and the top-sellers cache.
 
-Actual benchmark results will be added after the schema and sample
-data are available.
+## 8. Performance
 
-## 8. Implementation Status
+Indexes are defined in [`sql/05_indexes.sql`](../sql/05_indexes.sql) and applied
+by `scripts/setup_database.py`:
 
-This document defines the initial design. SQL DDL, constraints,
-sample data, automated tests, and performance measurements will be
-implemented and reviewed in subsequent steps.
+- a B-tree index on `orders.customer_id` for customer order history;
+- a GIN index on `products.metadata` for JSONB searches.
+
+Their effect was measured with `EXPLAIN ANALYZE` on a 670,000-row benchmark
+dataset. Method, query plans, and results are in the
+[optimization report](optimization-report.md).
